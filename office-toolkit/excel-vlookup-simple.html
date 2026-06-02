@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel列匹配 - 简化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app">
+        <nav class="bg-white shadow-sm sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 py-4">
+                <div class="flex items-center space-x-3">
+                    <span class="text-2xl">🔍</span>
+                    <span class="text-xl font-bold text-blue-600">Excel 列匹配工具</span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-6xl mx-auto px-4 py-8">
+            <div class="bg-white rounded-xl p-6 mb-6">
+                <h2 class="font-semibold text-gray-900 mb-4">选择比对方式</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div @click="mode = 'single'" class="p-4 border-2 rounded-xl cursor-pointer transition-all"
+                        :class="mode === 'single' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-xl">📄</span></div>
+                            <div>
+                                <h3 class="font-medium text-gray-900">单文件多工作表</h3>
+                                <p class="text-sm text-gray-500">一个 Excel 文件中选择两个工作表进行比对</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div @click="mode = 'double'" class="p-4 border-2 rounded-xl cursor-pointer transition-all"
+                        :class="mode === 'double' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-xl">📁</span></div>
+                            <div>
+                                <h3 class="font-medium text-gray-900">双文件比对</h3>
+                                <p class="text-sm text-gray-500">分别上传两个文件，选择各自的工作表进行比对</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="mode" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white rounded-xl p-6">
+                    <h2 class="font-semibold text-gray-900 mb-4">{{ mode === 'single' ? '上传文件' : '主表文件' }}</h2>
+                    <input type="file" ref="mainFileInput" accept=".xlsx,.xls,.csv" class="hidden" @change="handleMainFile">
+                    <div @click="$refs.mainFileInput.click()" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                        <div v-if="!mainFile" class="flex flex-col items-center">
+                            <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                                <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                            </div>
+                            <p class="text-gray-700 font-medium mb-2">点击上传文件</p>
+                            <p class="text-sm text-gray-500">支持 .xlsx、.xls、.csv 格式</p>
+                        </div>
+                        <div v-else class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-lg">📊</span></div>
+                                <div class="text-left">
+                                    <p class="font-medium text-gray-700">{{ mainFile.name }}</p>
+                                    <p class="text-sm text-gray-500">{{ formatFileSize(mainFile.size) }}</p>
+                                </div>
+                            </div>
+                            <button @click.stop="clearMainFile" class="text-gray-400 hover:text-red-500">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div v-if="mainSheets.length > 0" class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">选择作为主表的工作表</label>
+                        <select v-model="mainSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            <option v-for="(sheet, index) in mainSheets" :key="index" :value="index">{{ sheet.name }} ({{ sheet.data.length }} 行)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div v-if="mode === 'double'" class="bg-white rounded-xl p-6">
+                    <h2 class="font-semibold text-gray-900 mb-4">参照表文件</h2>
+                    <input type="file" ref="refFileInput" accept=".xlsx,.xls,.csv" class="hidden" @change="handleRefFile">
+                    <div @click="$refs.refFileInput.click()" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                        <div v-if="!refFile" class="flex flex-col items-center">
+                            <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                                <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                            </div>
+                            <p class="text-gray-700 font-medium mb-2">点击上传文件</p>
+                            <p class="text-sm text-gray-500">支持 .xlsx、.xls、.csv 格式</p>
+                        </div>
+                        <div v-else class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-lg">📊</span></div>
+                                <div class="text-left">
+                                    <p class="font-medium text-gray-700">{{ refFile.name }}</p>
+                                    <p class="text-sm text-gray-500">{{ formatFileSize(refFile.size) }}</p>
+                                </div>
+                            </div>
+                            <button @click.stop="clearRefFile" class="text-gray-400 hover:text-red-500">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div v-if="refSheets.length > 0" class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">选择作为参照表的工作表</label>
+                        <select v-model="refSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            <option v-for="(sheet, index) in refSheets" :key="index" :value="index">{{ sheet.name }} ({{ sheet.data.length }} 行)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div v-if="mode === 'single' && mainSheets.length > 0" class="bg-white rounded-xl p-6">
+                    <h2 class="font-semibold text-gray-900 mb-4">选择参照表工作表</h2>
+                    <div v-if="mainSheets.length < 2" class="text-center py-8 text-gray-500">
+                        <svg class="w-12 h-12 mx-auto mb-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        <p>该文件只有 {{ mainSheets.length }} 个工作表</p>
+                        <p class="text-sm mt-1">至少需要 2 个工作表才能进行比对</p>
+                    </div>
+                    <select v-else v-model="refSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <option v-for="(sheet, index) in mainSheets" :key="index" :value="index" :disabled="index === mainSheetIndex">
+                            {{ sheet.name }} ({{ sheet.data.length }} 行) {{ index === mainSheetIndex ? '- 主表' : '' }}
+                        </option>
+                    </select>
+                </div>
+            </div>
+
+            <div v-if="canProceed" class="bg-white rounded-xl p-6 mb-6">
+                <h2 class="font-semibold text-gray-900 mb-4">匹配设置</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">公共列（用于匹配的关键列）</label>
+                        <select v-model="matchColumn" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            <option value="">请选择</option>
+                            <option v-for="col in commonColumns" :key="col" :value="col">{{ col }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">匹配列（从参照表获取的列）</label>
+                        <p class="text-xs text-gray-500 mb-2">按住 Ctrl/Cmd 可多选</p>
+                        <select v-model="returnColumns" multiple class="w-full px-3 py-2 border border-gray-300 rounded-lg h-24">
+                            <option v-for="col in refColumns" :key="col" :value="col">{{ col }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">匹配方式</label>
+                        <select v-model="matchMode" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            <option value="exact">精确匹配</option>
+                            <option value="fuzzy">模糊匹配</option>
+                            <option value="regex">正则匹配</option>
+                        </select>
+                    </div>
+                    <div v-if="matchMode === 'regex'">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">正则表达式</label>
+                        <input v-model="regexPattern" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="例如: .*关键词.*">
+                    </div>
+                </div>
+                <button @click="executeMatch" class="mt-6 px-6 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">执行匹配</button>
+            </div>
+
+            <div v-if="resultData" class="bg-white rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-semibold text-gray-900">匹配结果</h2>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-sm text-gray-500">
+                            <span class="text-green-600 font-medium">{{ matchCount }}</span> 匹配成功，
+                            <span class="text-red-500 font-medium">{{ resultData.length - matchCount }}</span> 未匹配
+                        </span>
+                        <button @click="downloadResult" class="px-4 py-2 font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors">导出结果</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-h-96">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50 sticky top-0">
+                            <tr>
+                                <th v-for="col in resultColumns" :key="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ col }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr v-for="(row, index) in resultData" :key="index">
+                                <td v-for="col in resultColumns" :key="col" class="px-4 py-3 text-sm text-gray-900">{{ row[col] || '' }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, watch } = Vue;
+
+        createApp({
+            setup() {
+                const mode = ref('');
+                const mainFile = ref(null);
+                const refFile = ref(null);
+                const mainSheets = ref([]);
+                const refSheets = ref([]);
+                const mainSheetIndex = ref(0);
+                const refSheetIndex = ref(0);
+                const matchColumn = ref('');
+                const returnColumns = ref([]);
+                const matchMode = ref('exact');
+                const regexPattern = ref('');
+                const resultData = ref(null);
+                const matchCount = ref(0);
+
+                const mainData = computed(() => mainSheets.value[mainSheetIndex.value]?.data || []);
+                const refData = computed(() => mode.value === 'single' ? (mainSheets.value[refSheetIndex.value]?.data || []) : (refSheets.value[refSheetIndex.value]?.data || []));
+                
+                const mainColumns = computed(() => mainData.value.length > 0 ? Object.keys(mainData.value[0]) : []);
+                const refColumns = computed(() => refData.value.length > 0 ? Object.keys(refData.value[0]) : []);
+                
+                const commonColumns = computed(() => {
+                    return mainColumns.value.filter(col => refColumns.value.includes(col));
+                });
+
+                const resultColumns = computed(() => {
+                    if (mainData.value.length === 0) return [];
+                    const existingCols = Object.keys(mainData.value[0]);
+                    const newCols = returnColumns.value.map(col => existingCols.includes(col) ? `${col}_参照` : col);
+                    return [...existingCols, ...newCols];
+                });
+
+                const canProceed = computed(() => {
+                    if (mode.value === 'single') {
+                        return mainFile.value && mainSheets.value.length >= 2 && refSheetIndex.value !== mainSheetIndex.value;
+                    }
+                    return mainFile.value && refFile.value;
+                });
+
+                function formatFileSize(bytes) {
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                }
+
+                function handleMainFile(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    mainFile.value = file;
+                    parseExcel(file, 'main');
+                }
+
+                function handleRefFile(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    refFile.value = file;
+                    parseExcel(file, 'ref');
+                }
+
+                function clearMainFile() {
+                    mainFile.value = null;
+                    mainSheets.value = [];
+                    resultData.value = null;
+                }
+
+                function clearRefFile() {
+                    refFile.value = null;
+                    refSheets.value = [];
+                    resultData.value = null;
+                }
+
+                function parseExcel(file, type) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const sheets = [];
+                            
+                            workbook.SheetNames.forEach(name => {
+                                const worksheet = workbook.Sheets[name];
+                                const json = XLSX.utils.sheet_to_json(worksheet);
+                                sheets.push({ name, data: json });
+                            });
+                            
+                            if (type === 'main') {
+                                mainSheets.value = sheets;
+                                mainSheetIndex.value = 0;
+                                refSheetIndex.value = sheets.length > 1 ? 1 : 0;
+                            } else {
+                                refSheets.value = sheets;
+                                refSheetIndex.value = 0;
+                            }
+                        } catch (err) {
+                            alert('解析失败: ' + err.message);
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
+                }
+
+                function executeMatch() {
+                    if (!matchColumn.value) {
+                        alert('请选择公共列');
+                        return;
+                    }
+                    if (returnColumns.value.length === 0) {
+                        alert('请选择至少一个匹配列');
+                        return;
+                    }
+                    if (matchMode.value === 'regex' && !regexPattern.value) {
+                        alert('请输入正则表达式');
+                        return;
+                    }
+
+                    const main = mainData.value;
+                    const ref = refData.value;
+                    const result = [];
+                    matchCount.value = 0;
+
+                    const refLookup = {};
+                    ref.forEach(row => {
+                        const key = String(row[matchColumn.value] || '');
+                        if (key) refLookup[key] = row;
+                    });
+
+                    main.forEach(row => {
+                        const mainValue = String(row[matchColumn.value] || '');
+                        let matchedRow = null;
+
+                        switch (matchMode.value) {
+                            case 'exact':
+                                matchedRow = refLookup[mainValue];
+                                break;
+                            case 'fuzzy':
+                                for (const [refValue, refRow] of Object.entries(refLookup)) {
+                                    if (refValue.includes(mainValue) || mainValue.includes(refValue)) {
+                                        matchedRow = refRow;
+                                        break;
+                                    }
+                                }
+                                break;
+                            case 'regex':
+                                try {
+                                    const regex = new RegExp(regexPattern.value);
+                                    for (const [refValue, refRow] of Object.entries(refLookup)) {
+                                        if (regex.test(refValue)) {
+                                            matchedRow = refRow;
+                                            break;
+                                        }
+                                    }
+                                } catch (e) {
+                                    alert('无效的正则表达式');
+                                    return;
+                                }
+                                break;
+                        }
+
+                        const newRow = { ...row };
+                        returnColumns.value.forEach(col => {
+                            const colName = mainColumns.value.includes(col) ? `${col}_参照` : col;
+                            newRow[colName] = matchedRow ? matchedRow[col] : '';
+                        });
+
+                        if (matchedRow) matchCount.value++;
+                        result.push(newRow);
+                    });
+
+                    resultData.value = result;
+                }
+
+                function downloadResult() {
+                    if (!resultData.value || resultData.value.length === 0) return;
+                    const headers = resultColumns.value;
+                    const rows = [headers.join(',')];
+                    
+                    resultData.value.forEach(row => {
+                        const values = headers.map(col => {
+                            const val = String(row[col] || '');
+                            if (val.includes(',') || val.includes('"') || val.includes('\n') || val.includes('\r')) {
+                                return `"${val.replace(/"/g, '""')}"`;
+                            }
+                            return val;
+                        });
+                        rows.push(values.join(','));
+                    });
+
+                    const csvContent = '\uFEFF' + rows.join('\r\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = '匹配结果.csv';
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                }
+
+                return {
+                    mode, mainFile, refFile, mainSheets, refSheets, mainSheetIndex, refSheetIndex,
+                    matchColumn, returnColumns, matchMode, regexPattern, resultData, matchCount,
+                    mainColumns, refColumns, commonColumns, resultColumns, canProceed,
+                    formatFileSize, handleMainFile, handleRefFile, clearMainFile, clearRefFile,
+                    executeMatch, downloadResult
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

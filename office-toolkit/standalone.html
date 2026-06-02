@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>办公工具箱</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .tool-card:hover, .category-card:hover { transform: translateY(-4px); }
+        .tool-card, .category-card { transition: all 0.3s ease; }
+        .loading-spinner { border: 4px solid #e5e7eb; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app">
+        <nav class="bg-white shadow-sm sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">🛠️</span>
+                        <span class="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">办公工具箱</span>
+                    </div>
+                    <div class="hidden md:flex items-center space-x-1">
+                        <button v-for="cat in categories" :key="cat.id" @click="navigateToCategory(cat.id)"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+                            :class="currentCategory === cat.id ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'">
+                            <span class="mr-1">{{ cat.icon }}</span> {{ cat.name }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div v-if="currentView === 'home'" class="fade-in">
+                <div class="text-center mb-12">
+                    <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4">一站式办公效率工具</h1>
+                    <p class="text-lg text-gray-600 max-w-2xl mx-auto">所有工具都在您的浏览器中本地处理，数据不上传服务器，安全可靠</p>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
+                    <div v-for="cat in categories" :key="cat.id" @click="navigateToCategory(cat.id)"
+                        class="category-card cursor-pointer bg-white rounded-xl p-4 text-center border border-gray-100 hover:border-blue-200 hover:shadow-md">
+                        <span class="text-4xl mb-2 block">{{ cat.icon }}</span>
+                        <span class="font-medium text-gray-700">{{ cat.name }}</span>
+                        <span class="text-xs text-gray-400 block mt-1">{{ getToolsByCategory(cat.id).length }} 个工具</span>
+                    </div>
+                </div>
+                <h2 class="text-xl font-bold text-gray-900 mb-4">所有工具</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div v-for="tool in allTools" :key="tool.path" @click="navigateToTool(tool.path)"
+                        class="tool-card cursor-pointer bg-white rounded-xl p-5 border border-gray-100 hover:border-blue-200 hover:shadow-md">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">{{ tool.icon }}</span></div>
+                            <span class="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600">{{ getCategoryName(tool.category) }}</span>
+                        </div>
+                        <h3 class="font-semibold text-gray-900 mb-2">{{ tool.title }}</h3>
+                        <p class="text-sm text-gray-500">{{ tool.description }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="currentView === 'category'" class="fade-in">
+                <div class="flex items-center justify-between mb-8">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900"><span class="mr-2">{{ currentCategoryData.icon }}</span>{{ currentCategoryData.name }}</h1>
+                        <p class="text-gray-500 mt-1">共 {{ currentCategoryTools.length }} 个工具</p>
+                    </div>
+                    <button @click="navigateToHome" class="inline-flex items-center px-4 py-2 font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+                        返回首页
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div v-for="tool in currentCategoryTools" :key="tool.path" @click="navigateToTool(tool.path)"
+                        class="tool-card cursor-pointer bg-white rounded-xl p-5 border border-gray-100 hover:border-blue-200 hover:shadow-md">
+                        <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center mb-4"><span class="text-2xl">{{ tool.icon }}</span></div>
+                        <h3 class="font-semibold text-gray-900 mb-2">{{ tool.title }}</h3>
+                        <p class="text-sm text-gray-500">{{ tool.description }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="currentView === 'tool'" class="fade-in">
+                <div v-if="currentTool === 'excel-vlookup'" class="max-w-6xl mx-auto">
+                    <div class="mb-8">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">🔍</span></div>
+                            <div>
+                                <h1 class="text-xl font-bold text-gray-900">Excel 列匹配</h1>
+                                <p class="text-gray-500">类似 VLOOKUP，支持多工作表/多文件之间的精准、模糊、正则匹配</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 mb-6">
+                        <h2 class="font-semibold text-gray-900 mb-4">选择比对方式</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div @click="vlookupSelectMode('single')" class="p-4 border-2 rounded-xl cursor-pointer transition-all"
+                                :class="vlookupMode === 'single' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-xl">📄</span></div>
+                                    <div>
+                                        <h3 class="font-medium text-gray-900">单文件多工作表</h3>
+                                        <p class="text-sm text-gray-500">一个 Excel 文件中选择两个工作表进行比对</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div @click="vlookupSelectMode('double')" class="p-4 border-2 rounded-xl cursor-pointer transition-all"
+                                :class="vlookupMode === 'double' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-xl">📁</span></div>
+                                    <div>
+                                        <h3 class="font-medium text-gray-900">双文件比对</h3>
+                                        <p class="text-sm text-gray-500">分别上传两个文件，选择各自的工作表进行比对</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="vlookupMode" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="bg-white rounded-xl p-6">
+                            <h2 class="font-semibold text-gray-900 mb-4">{{ vlookupMode === 'single' ? '上传文件' : '主表文件' }}</h2>
+                            <div @dragover.prevent="vlookupMainDragging = true" @dragleave.prevent="vlookupMainDragging = false"
+                                @drop.prevent="handleVlookupMainDrop" @click="$refs.vlookupMainFileInput.click()"
+                                class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all"
+                                :class="vlookupMainDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'">
+                                <input type="file" ref="vlookupMainFileInput" accept=".xlsx,.xls,.csv" class="hidden" @change="handleVlookupMainFileSelect">
+                                <div v-if="!vlookupMainFile" class="flex flex-col items-center">
+                                    <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                                        <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                    </div>
+                                    <p class="text-gray-700 font-medium mb-2">拖拽文件到此处，或点击选择</p>
+                                    <p class="text-sm text-gray-500">支持 .xlsx、.xls、.csv 格式</p>
+                                </div>
+                                <div v-else class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-lg">📊</span></div>
+                                        <div class="text-left">
+                                            <p class="font-medium text-gray-700">{{ vlookupMainFile.name }}</p>
+                                            <p class="text-sm text-gray-500">{{ vlookupFormatFileSize(vlookupMainFile.size) }}</p>
+                                        </div>
+                                    </div>
+                                    <button @click.stop="clearVlookupMainFile" class="text-gray-400 hover:text-red-500">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="vlookupMainSheets.length > 0" class="mt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">选择作为主表的工作表</label>
+                                <select v-model="vlookupMainSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option v-for="(sheet, index) in vlookupMainSheets" :key="index" :value="index">{{ sheet.name }} ({{ sheet.rowCount }} 行)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div v-if="vlookupMode === 'double'" class="bg-white rounded-xl p-6">
+                            <h2 class="font-semibold text-gray-900 mb-4">参照表文件</h2>
+                            <div @dragover.prevent="vlookupRefDragging = true" @dragleave.prevent="vlookupRefDragging = false"
+                                @drop.prevent="handleVlookupRefDrop" @click="$refs.vlookupRefFileInput.click()"
+                                class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all"
+                                :class="vlookupRefDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'">
+                                <input type="file" ref="vlookupRefFileInput" accept=".xlsx,.xls,.csv" class="hidden" @change="handleVlookupRefFileSelect">
+                                <div v-if="!vlookupRefFile" class="flex flex-col items-center">
+                                    <div class="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                                        <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                    </div>
+                                    <p class="text-gray-700 font-medium mb-2">拖拽文件到此处，或点击选择</p>
+                                    <p class="text-sm text-gray-500">支持 .xlsx、.xls、.csv 格式</p>
+                                </div>
+                                <div v-else class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-lg">📊</span></div>
+                                        <div class="text-left">
+                                            <p class="font-medium text-gray-700">{{ vlookupRefFile.name }}</p>
+                                            <p class="text-sm text-gray-500">{{ vlookupFormatFileSize(vlookupRefFile.size) }}</p>
+                                        </div>
+                                    </div>
+                                    <button @click.stop="clearVlookupRefFile" class="text-gray-400 hover:text-red-500">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="vlookupRefSheets.length > 0 && vlookupMode === 'double'" class="mt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">选择作为参照表的工作表</label>
+                                <select v-model="vlookupRefSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option v-for="(sheet, index) in vlookupRefSheets" :key="index" :value="index">{{ sheet.name }} ({{ sheet.rowCount }} 行)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div v-if="vlookupMode === 'single' && vlookupMainSheets.length > 0" class="bg-white rounded-xl p-6">
+                            <h2 class="font-semibold text-gray-900 mb-4">选择参照表工作表</h2>
+                            <div v-if="vlookupMainSheets.length < 2" class="text-center py-8 text-gray-500">
+                                <svg class="w-12 h-12 mx-auto mb-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                <p>该文件只有 {{ vlookupMainSheets.length }} 个工作表</p>
+                                <p class="text-sm mt-1">至少需要 2 个工作表才能进行比对</p>
+                            </div>
+                            <select v-else v-model="vlookupRefSheetIndex" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option v-for="(sheet, index) in vlookupMainSheets" :key="index" :value="index" :disabled="index === vlookupMainSheetIndex">
+                                    {{ sheet.name }} ({{ sheet.rowCount }} 行) {{ index === vlookupMainSheetIndex ? '- 主表' : '' }}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div v-if="vlookupCanProceed" class="bg-white rounded-xl p-6 mb-6">
+                        <h2 class="font-semibold text-gray-900 mb-4">匹配设置</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">公共列（用于匹配的关键列）</label>
+                                <p class="text-xs text-gray-500 mb-2">主表和参照表中用于匹配的列</p>
+                                <select v-model="vlookupMainMatchColumn" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option value="">请选择</option>
+                                    <option v-for="col in vlookupCommonColumns" :key="col" :value="col">{{ col }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">匹配列（从参照表获取的列）</label>
+                                <p class="text-xs text-gray-500 mb-2">按住 Ctrl/Cmd 可多选</p>
+                                <select v-model="vlookupSelectedReturnColumns" multiple class="w-full px-3 py-2 border border-gray-300 rounded-lg h-24">
+                                    <option v-for="col in vlookupRefColumns" :key="col" :value="col">{{ col }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">匹配方式</label>
+                                <select v-model="vlookupMatchMode" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option value="exact">精确匹配（完全相等）</option>
+                                    <option value="fuzzy">模糊匹配（包含关系）</option>
+                                    <option value="regex">正则匹配（自定义规则）</option>
+                                </select>
+                            </div>
+                            <div v-if="vlookupMatchMode === 'regex'">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">正则表达式</label>
+                                <input v-model="vlookupRegexPattern" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="例如: .*关键词.*">
+                                <p class="text-xs text-gray-500 mt-1">参照表的值会作为正则表达式匹配</p>
+                            </div>
+                        </div>
+                        <button @click="executeVlookupMatch" class="mt-6 inline-flex items-center justify-center px-6 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">执行匹配</button>
+                    </div>
+
+                    <div v-if="vlookupResultData" class="bg-white rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="font-semibold text-gray-900">匹配结果</h2>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-sm text-gray-500">
+                                    <span class="text-green-600 font-medium">{{ vlookupMatchCount }}</span> 匹配成功，
+                                    <span class="text-red-500 font-medium">{{ vlookupResultData.length - vlookupMatchCount }}</span> 未匹配
+                                </div>
+                                <button @click="downloadVlookupResult" class="inline-flex items-center px-4 py-2 font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors">导出结果</button>
+                            </div>
+                        </div>
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-green-700">
+                                <strong>主表：</strong>{{ vlookupMainSheetName }} &nbsp;|&nbsp;
+                                <strong>参照表：</strong>{{ vlookupRefSheetName }} &nbsp;|&nbsp;
+                                <strong>匹配列：</strong>{{ vlookupMainMatchColumn }} &nbsp;|&nbsp;
+                                <strong>获取列：</strong>{{ vlookupSelectedReturnColumns.join(', ') }}
+                            </p>
+                        </div>
+                        <div class="overflow-x-auto max-h-96">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th v-for="col in vlookupResultColumns" :key="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ col }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="(row, index) in vlookupResultData" :key="index" :class="isVlookupRowMatched(row) ? '' : 'bg-red-50'">
+                                        <td v-for="col in vlookupResultColumns" :key="col" class="px-4 py-3 text-sm text-gray-900">{{ row[col] || '' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="currentTool === 'excel-to-csv'" class="max-w-4xl mx-auto">
+                    <div class="mb-8">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">📊</span></div>
+                            <div><h1 class="text-xl font-bold text-gray-900">Excel 转 CSV</h1><p class="text-gray-500">将 Excel 文件转换为 CSV 格式</p></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">上传文件</h2>
+                            <input type="file" ref="excelFileInput" accept=".csv,.txt" class="hidden" @change="handleExcelFileSelect">
+                            <div @click="$refs.excelFileInput.click()" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                                <div class="text-4xl mb-3">📁</div>
+                                <p class="text-gray-700 font-medium">点击上传 CSV 或文本文件</p>
+                                <p class="text-sm text-gray-500 mt-1">支持直接处理 CSV 格式</p>
+                            </div>
+                            <div v-if="excelFile" class="mt-4 p-3 bg-gray-50 rounded-lg">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-gray-700">{{ excelFile.name }}</span>
+                                    <button @click="clearExcelFile" class="text-red-500 hover:text-red-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                </div>
+                            </div>
+                            <button v-if="excelFile" @click="processExcelToCsv" class="w-full mt-4 inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">处理文件</button>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">结果</h2>
+                            <div v-if="!csvContent" class="flex flex-col items-center justify-center py-12 text-gray-400">
+                                <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                <p>转换结果将在这里显示</p>
+                            </div>
+                            <div v-else class="bg-gray-50 rounded-lg p-4"><pre class="text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto">{{ csvContent }}</pre></div>
+                            <button v-if="csvContent" @click="downloadCsv" class="w-full mt-4 inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors">下载 CSV</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="currentTool === 'text-counter'" class="max-w-4xl mx-auto">
+                    <div class="mb-8">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">📝</span></div>
+                            <div><h1 class="text-xl font-bold text-gray-900">字数统计</h1><p class="text-gray-500">统计文本的字符数、字数、单词数等</p></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-2 bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">输入文本</h2>
+                            <textarea v-model="textContent" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-64 resize-none" placeholder="在这里输入文本..."></textarea>
+                            <div class="flex space-x-2 mt-4">
+                                <button @click="textContent = ''" class="inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">清空</button>
+                                <button @click="copyText" class="inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">{{ textCopied ? '已复制' : '复制' }}</button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">统计结果</h2>
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><span class="text-gray-600">字符数</span><span class="text-xl font-bold text-blue-600">{{ textStats.characters }}</span></div>
+                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><span class="text-gray-600">中文字数</span><span class="text-xl font-bold text-blue-600">{{ textStats.chineseChars }}</span></div>
+                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><span class="text-gray-600">单词数</span><span class="text-xl font-bold text-blue-600">{{ textStats.words }}</span></div>
+                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><span class="text-gray-600">行数</span><span class="text-xl font-bold text-blue-600">{{ textStats.lines }}</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="currentTool === 'image-resizer'" class="max-w-4xl mx-auto">
+                    <div class="mb-8">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">🖼️</span></div>
+                            <div><h1 class="text-xl font-bold text-gray-900">图片尺寸调整</h1><p class="text-gray-500">调整图片尺寸，支持自定义宽高</p></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">上传图片</h2>
+                            <input type="file" ref="imageFileInput" accept="image/*" class="hidden" @change="handleImageFileSelect">
+                            <div @click="$refs.imageFileInput.click()" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                                <div class="text-4xl mb-3">🖼️</div>
+                                <p class="text-gray-700 font-medium">点击上传图片</p>
+                                <p class="text-sm text-gray-500 mt-1">支持 JPG、PNG、WebP 等格式</p>
+                            </div>
+                            <div v-if="imageFile" class="mt-4">
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div><label class="block text-sm font-medium text-gray-700 mb-2">宽度</label><input v-model.number="imageWidth" type="number" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></div>
+                                    <div><label class="block text-sm font-medium text-gray-700 mb-2">高度</label><input v-model.number="imageHeight" type="number" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></div>
+                                </div>
+                                <label class="flex items-center space-x-2 mb-4"><input v-model="maintainAspectRatio" type="checkbox" class="rounded border-gray-300"><span class="text-sm text-gray-700">保持宽高比</span></label>
+                                <button @click="resizeImage" class="w-full inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">调整尺寸</button>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl p-6 border border-gray-100">
+                            <h2 class="font-semibold text-gray-900 mb-4">预览</h2>
+                            <div v-if="!imagePreview" class="flex flex-col items-center justify-center py-12 text-gray-400">
+                                <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                <p>图片预览</p>
+                            </div>
+                            <div v-else class="bg-gray-50 rounded-lg p-4"><img :src="imagePreview" class="max-w-full rounded-lg"></div>
+                            <div v-if="resizedImage" class="mt-4">
+                                <h3 class="font-medium text-gray-700 mb-2">调整后的图片</h3>
+                                <div class="bg-gray-50 rounded-lg p-4"><img :src="resizedImage" class="max-w-full rounded-lg"></div>
+                                <button @click="downloadResizedImage" class="w-full mt-4 inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors">下载图片</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="currentTool === 'unit-converter'" class="max-w-3xl mx-auto">
+                    <div class="mb-8">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center"><span class="text-2xl">🔄</span></div>
+                            <div><h1 class="text-xl font-bold text-gray-900">单位换算</h1><p class="text-gray-500">常用长度单位换算</p></div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl p-6 border border-gray-100">
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-center">
+                            <div><label class="block text-sm font-medium text-gray-700 mb-2">数值</label><input v-model.number="unitInputValue" type="number" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></div>
+                            <div><select v-model="unitFrom" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"><option v-for="unit in lengthUnits" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select></div>
+                            <div class="flex justify-center"><button @click="swapUnits" class="p-2 rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200 transition-colors"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button></div>
+                            <div><select v-model="unitTo" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"><option v-for="unit in lengthUnits" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select></div>
+                            <div><label class="block text-sm font-medium text-gray-700 mb-2">结果</label><div class="px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg">{{ unitOutputValue.toFixed(4) }}</div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <button @click="navigateToPrevious" class="inline-flex items-center px-4 py-2 font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                        返回
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer class="bg-white border-t border-gray-200 mt-auto py-6">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center text-gray-500 text-sm">
+                    <p>办公工具箱 - 所有数据均在本地处理，不上传服务器</p>
+                    <p class="mt-2">© {{ currentYear }} Office Toolkit</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const { createApp, ref, computed } = Vue;
+
+        createApp({
+            setup() {
+                const currentYear = new Date().getFullYear();
+                const currentView = ref('home');
+                const currentCategory = ref(null);
+                const currentTool = ref(null);
+                const previousView = ref('home');
+
+                const categories = [
+                    { id: 'excel', name: 'Excel工具', icon: '📊' },
+                    { id: 'pdf', name: 'PDF工具', icon: '📄' },
+                    { id: 'image', name: '图片工具', icon: '🖼️' },
+                    { id: 'text', name: '文本工具', icon: '📝' },
+                    { id: 'convert', name: '格式转换', icon: '🔄' },
+                    { id: 'ai-office', name: 'AI办公', icon: '🤖' }
+                ];
+
+                const allTools = [
+                    { path: 'excel-vlookup', category: 'excel', title: 'Excel 列匹配', description: '类似 VLOOKUP，支持多工作表/多文件之间的精准、模糊、正则匹配', icon: '🔍' },
+                    { path: 'excel-to-csv', category: 'excel', title: 'Excel 转 CSV', description: '将 Excel 文件转换为 CSV 格式，方便数据处理', icon: '📊' },
+                    { path: 'text-counter', category: 'text', title: '字数统计', description: '统计文本的字符数、字数、单词数等', icon: '📝' },
+                    { path: 'image-resizer', category: 'image', title: '图片尺寸调整', description: '调整图片尺寸，支持自定义宽高', icon: '🖼️' },
+                    { path: 'unit-converter', category: 'convert', title: '单位换算', description: '常用长度单位换算', icon: '🔄' }
+                ];
+
+                const navigateToHome = () => { previousView.value = currentView.value; currentView.value = 'home'; currentCategory.value = null; currentTool.value = null; };
+                const navigateToCategory = (catId) => { previousView.value = currentView.value; if (currentView.value === 'home' && currentCategory.value === catId) return; currentCategory.value = catId; currentView.value = 'category'; currentTool.value = null; };
+                const navigateToTool = (toolPath) => { previousView.value = currentView.value; currentTool.value = toolPath; currentView.value = 'tool'; };
+                const navigateToPrevious = () => { if (previousView.value === 'category' && currentCategory.value) { currentView.value = 'category'; currentTool.value = null; } else { navigateToHome(); } };
+                const getCategoryName = (catId) => { const cat = categories.find(c => c.id === catId); return cat ? cat.name : catId; };
+                const getToolsByCategory = (catId) => allTools.filter(t => t.category === catId);
+                const currentCategoryData = computed(() => categories.find(c => c.id === currentCategory.value));
+                const currentCategoryTools = computed(() => getToolsByCategory(currentCategory.value));
+
+                // Excel VLOOKUP
+                const vlookupMode = ref('');
+                const vlookupMainFile = ref(null);
+                const vlookupRefFile = ref(null);
+                const vlookupMainSheets = ref([]);
+                const vlookupRefSheets = ref([]);
+                const vlookupMainSheetIndex = ref(0);
+                const vlookupRefSheetIndex = ref(0);
+                const vlookupMainData = ref(null);
+                const vlookupRefData = ref(null);
+                const vlookupMainMatchColumn = ref('');
+                const vlookupSelectedReturnColumns = ref([]);
+                const vlookupMatchMode = ref('exact');
+                const vlookupRegexPattern = ref('');
+                const vlookupResultData = ref(null);
+                const vlookupMatchCount = ref(0);
+                const vlookupMainDragging = ref(false);
+                const vlookupRefDragging = ref(false);
+
+                const vlookupMainSheetName = computed(() => vlookupMainSheets.value[vlookupMainSheetIndex.value]?.name || '');
+                const vlookupRefSheetName = computed(() => vlookupMode.value === 'single' ? (vlookupMainSheets.value[vlookupRefSheetIndex.value]?.name || '') : (vlookupRefSheets.value[vlookupRefSheetIndex.value]?.name || ''));
+                const vlookupCommonColumns = computed(() => { if (!vlookupMainData.value || !vlookupRefData.value) return []; const mainCols = Object.keys(vlookupMainData.value[0] || {}); const refCols = Object.keys(vlookupRefData.value[0] || {}); return mainCols.filter(col => refCols.includes(col)); });
+                const vlookupRefColumns = computed(() => { if (!vlookupRefData.value || vlookupRefData.value.length === 0) return []; return Object.keys(vlookupRefData.value[0]); });
+                const vlookupResultColumns = computed(() => { if (!vlookupMainData.value || !vlookupSelectedReturnColumns.value) return []; const mainCols = Object.keys(vlookupMainData.value[0]); const newCols = vlookupSelectedReturnColumns.value.map(col => mainCols.includes(col) ? `${col}_参照` : col); return [...mainCols, ...newCols]; });
+                const vlookupCanProceed = computed(() => { if (vlookupMode.value === 'single') return vlookupMainFile.value && vlookupMainSheets.value.length >= 2 && vlookupRefSheetIndex.value !== vlookupMainSheetIndex.value; return vlookupMainFile.value && vlookupRefFile.value; });
+
+                function vlookupSelectMode(mode) { vlookupMode.value = mode; vlookupResetData(); }
+                function vlookupResetData() { vlookupMainFile.value = null; vlookupRefFile.value = null; vlookupMainSheets.value = []; vlookupRefSheets.value = []; vlookupMainSheetIndex.value = 0; vlookupRefSheetIndex.value = 0; vlookupMainData.value = null; vlookupRefData.value = null; vlookupMainMatchColumn.value = ''; vlookupSelectedReturnColumns.value = []; vlookupResultData.value = null; vlookupMatchCount.value = 0; }
+                function clearVlookupMainFile() { vlookupMainFile.value = null; vlookupMainSheets.value = []; vlookupMainData.value = null; vlookupResultData.value = null; }
+                function clearVlookupRefFile() { vlookupRefFile.value = null; vlookupRefSheets.value = []; vlookupRefData.value = null; vlookupResultData.value = null; }
+
+                function handleVlookupMainDrop(e) { vlookupMainDragging.value = false; if (e.dataTransfer.files.length > 0) vlookupHandleMainFile(e.dataTransfer.files[0]); }
+                function handleVlookupRefDrop(e) { vlookupRefDragging.value = false; if (e.dataTransfer.files.length > 0) vlookupHandleRefFile(e.dataTransfer.files[0]); }
+                function handleVlookupMainFileSelect(e) { if (e.target.files && e.target.files[0]) vlookupHandleMainFile(e.target.files[0]); }
+                function handleVlookupRefFileSelect(e) { if (e.target.files && e.target.files[0]) vlookupHandleRefFile(e.target.files[0]); }
+
+                async function vlookupHandleMainFile(file) {
+                    try {
+                        vlookupMainFile.value = file;
+                        const sheets = await vlookupParseFile(file);
+                        vlookupMainSheets.value = sheets;
+                        if (sheets.length < 2 && vlookupMode.value === 'single') { alert('该文件只有 ' + sheets.length + ' 个工作表，至少需要 2 个工作表才能进行比对'); return; }
+                        if (sheets.length > 0) { vlookupMainData.value = sheets[0].data; vlookupMainSheetIndex.value = 0; vlookupRefSheetIndex.value = sheets.length > 1 ? 1 : 0; vlookupLoadRefData(); }
+                    } catch (err) { alert('解析文件失败: ' + err.message); vlookupMainFile.value = null; }
+                }
+
+                async function vlookupHandleRefFile(file) {
+                    try {
+                        vlookupRefFile.value = file;
+                        const sheets = await vlookupParseFile(file);
+                        vlookupRefSheets.value = sheets;
+                        if (sheets.length > 0) { vlookupRefData.value = sheets[0].data; vlookupRefSheetIndex.value = 0; }
+                    } catch (err) { alert('解析文件失败: ' + err.message); vlookupRefFile.value = null; }
+                }
+
+                function vlookupLoadRefData() { vlookupRefData.value = vlookupMode.value === 'single' ? (vlookupMainSheets.value[vlookupRefSheetIndex.value]?.data || null) : (vlookupRefSheets.value[vlookupRefSheetIndex.value]?.data || null); vlookupResultData.value = null; vlookupMainMatchColumn.value = ''; vlookupSelectedReturnColumns.value = []; }
+
+                async function vlookupParseFile(file) {
+                    return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = async (e) => {
+                            try {
+                                const fileName = file.name.toLowerCase();
+                                let sheets = [];
+                                if (fileName.endsWith('.csv')) { const data = vlookupParseCsv(e.target.result); sheets = [{ name: 'Sheet1', data, rowCount: data.length }]; }
+                                else { const data = new Uint8Array(e.target.result); sheets = await vlookupParseExcel(data); }
+                                resolve(sheets);
+                            } catch (err) { resolve([]); }
+                        };
+                        if (file.name.toLowerCase().endsWith('.csv')) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+                    });
+                }
+
+                function vlookupParseCsv(text) {
+                    const lines = text.split('\n').filter(line => line.trim());
+                    if (lines.length === 0) return [];
+                    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+                    const data = [];
+                    for (let i = 1; i < lines.length; i++) { const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, '')); const row = {}; headers.forEach((h, idx) => row[h] = values[idx] || ''); data.push(row); }
+                    return data;
+                }
+
+                async function vlookupParseExcel(data) {
+                    const workbook = XLSX.read(new Uint8Array(data), { type: 'array' });
+                    const sheets = [];
+                    workbook.SheetNames.forEach(name => {
+                        const worksheet = workbook.Sheets[name];
+                        const json = XLSX.utils.sheet_to_json(worksheet);
+                        sheets.push({ name, data: json, rowCount: json.length });
+                    });
+                    return sheets;
+                }
+
+
+
+                function executeVlookupMatch() {
+                    if (!vlookupMainData.value || !vlookupRefData.value) { alert('请先选择主表和参照表'); return; }
+                    if (!vlookupMainMatchColumn.value) { alert('请选择公共列'); return; }
+                    if (vlookupSelectedReturnColumns.value.length === 0) { alert('请选择至少一个匹配列'); return; }
+                    if (vlookupMatchMode.value === 'regex' && !vlookupRegexPattern.value) { alert('请输入正则表达式'); return; }
+
+                    const result = [];
+                    vlookupMatchCount.value = 0;
+                    const refLookup = {};
+                    vlookupRefData.value.forEach(row => { const key = String(row[vlookupMainMatchColumn.value] || ''); if (key) refLookup[key] = row; });
+
+                    vlookupMainData.value.forEach(row => {
+                        const mainValue = String(row[vlookupMainMatchColumn.value] || '');
+                        let matchedRow = null;
+                        switch (vlookupMatchMode.value) {
+                            case 'exact': matchedRow = refLookup[mainValue]; break;
+                            case 'fuzzy':
+                                for (const [refValue, refRow] of Object.entries(refLookup)) { if (refValue.includes(mainValue) || mainValue.includes(refValue)) { matchedRow = refRow; break; } }
+                                break;
+                            case 'regex':
+                                try { const regex = new RegExp(vlookupRegexPattern.value); for (const [refValue, refRow] of Object.entries(refLookup)) { if (regex.test(refValue)) { matchedRow = refRow; break; } } } catch (e) { alert('无效的正则表达式: ' + e.message); return; }
+                                break;
+                        }
+                        const newRow = { ...row };
+                        vlookupSelectedReturnColumns.value.forEach(col => { const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; newRow[newColName] = matchedRow ? matchedRow[col] : ''; });
+                        if (matchedRow) vlookupMatchCount.value++;
+                        result.push(newRow);
+                    });
+                    vlookupResultData.value = result;
+                }
+
+                function isVlookupRowMatched(row) { return vlookupSelectedReturnColumns.value.some(col => { const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; return row[newColName] !== ''; }); }
+                function vlookupFormatFileSize(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / (1024 * 1024)).toFixed(1) + ' MB'; }
+
+                function downloadVlookupResult() {
+                    if (!vlookupResultData.value || vlookupResultData.value.length === 0) return;
+                    const headers = vlookupResultColumns.value;
+                    const rows = [headers.join(',')];
+                    vlookupResultData.value.forEach(row => {
+                        const rowValues = headers.map(col => { 
+                            const value = String(row[col] || ''); 
+                            if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+                                return '"' + value.replace(/"/g, '""') + '"';
+                            }
+                            return value; 
+                        });
+                        rows.push(rowValues.join(','));
+                    });
+                    const csvContent = '\uFEFF' + rows.join('\r\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = vlookupMainSheetName.value + '_匹配结果.csv';
+                    link.style.display = 'none';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                }
+
+                // Excel to CSV
+                const excelFile = ref(null);
+                const csvContent = ref('');
+                const handleExcelFileSelect = (e) => { if (e.target.files && e.target.files[0]) excelFile.value = e.target.files[0]; };
+                const clearExcelFile = () => { excelFile.value = null; csvContent.value = ''; };
+                const processExcelToCsv = async () => { if (!excelFile.value) return; const reader = new FileReader(); reader.onload = (e) => { csvContent.value = e.target.result; }; reader.readAsText(excelFile.value); };
+                const downloadCsv = () => { if (!csvContent.value) return; const blob = new Blob([csvContent.value], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'converted.csv'; link.click(); };
+
+                // Image Resizer
+                const imageFile = ref(null);
+                const imagePreview = ref('');
+                const resizedImage = ref('');
+                const imageWidth = ref(800);
+                const imageHeight = ref(600);
+                const maintainAspectRatio = ref(true);
+                let originalImageWidth = 0, originalImageHeight = 0;
+                const handleImageFileSelect = (e) => { if (e.target.files && e.target.files[0]) { imageFile.value = e.target.files[0]; const reader = new FileReader(); reader.onload = (e) => { imagePreview.value = e.target.result; const img = new Image(); img.onload = () => { originalImageWidth = img.width; originalImageHeight = img.height; imageWidth.value = img.width; imageHeight.value = img.height; }; img.src = e.target.result; }; reader.readAsDataURL(imageFile.value); } };
+                const resizeImage = () => { if (!imagePreview.value) return; const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); const img = new Image(); img.onload = () => { let w = imageWidth.value, h = imageHeight.value; if (maintainAspectRatio.value) { const ratio = originalImageWidth / originalImageHeight; if (w / h > ratio) w = h * ratio; else h = w / ratio; } canvas.width = w; canvas.height = h; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, 0, 0, w, h); resizedImage.value = canvas.toDataURL('image/jpeg', 0.9); }; img.src = imagePreview.value; };
+                const downloadResizedImage = () => { if (!resizedImage.value) return; const link = document.createElement('a'); link.href = resizedImage.value; link.download = 'resized.jpg'; link.click(); };
+
+                // Text Counter
+                const textContent = ref('');
+                const textCopied = ref(false);
+                const textStats = computed(() => { const text = textContent.value; return { characters: text.length, chineseChars: (text.match(/[\u4e00-\u9fa5]/g) || []).length, words: text.trim() ? text.trim().split(/\s+/).length : 0, lines: text ? text.split('\n').length : 0 }; });
+                const copyText = async () => { if (!textContent.value) return; try { await navigator.clipboard.writeText(textContent.value); textCopied.value = true; setTimeout(() => textCopied.value = false, 2000); } catch (e) {} };
+
+                // Unit Converter
+                const lengthUnits = [{ id: 'm', name: '米', base: 1 }, { id: 'km', name: '千米', base: 1000 }, { id: 'cm', name: '厘米', base: 0.01 }, { id: 'mm', name: '毫米', base: 0.001 }, { id: 'inch', name: '英寸', base: 0.0254 }, { id: 'ft', name: '英尺', base: 0.3048 }, { id: 'yd', name: '码', base: 0.9144 }, { id: 'mile', name: '英里', base: 1609.34 }];
+                const unitInputValue = ref(1);
+                const unitFrom = ref('m');
+                const unitTo = ref('km');
+                const unitOutputValue = computed(() => { const from = lengthUnits.find(u => u.id === unitFrom.value); const to = lengthUnits.find(u => u.id === unitTo.value); if (!from || !to) return 0; return (unitInputValue.value * from.base) / to.base; });
+                const swapUnits = () => { const temp = unitFrom.value; unitFrom.value = unitTo.value; unitTo.value = temp; };
+
+                return {
+                    currentYear, currentView, currentCategory, currentTool, previousView, categories, allTools,
+                    navigateToHome, navigateToCategory, navigateToTool, navigateToPrevious, getCategoryName, getToolsByCategory, currentCategoryData, currentCategoryTools,
+                    excelFile, csvContent, handleExcelFileSelect, clearExcelFile, processExcelToCsv, downloadCsv,
+                    imageFile, imagePreview, resizedImage, imageWidth, imageHeight, maintainAspectRatio, handleImageFileSelect, resizeImage, downloadResizedImage,
+                    textContent, textCopied, textStats, copyText,
+                    lengthUnits, unitInputValue, unitFrom, unitTo, unitOutputValue, swapUnits,
+                    vlookupMode, vlookupMainFile, vlookupRefFile, vlookupMainSheets, vlookupRefSheets, vlookupMainSheetIndex, vlookupRefSheetIndex,
+                    vlookupMainData, vlookupRefData, vlookupMainMatchColumn, vlookupSelectedReturnColumns, vlookupMatchMode, vlookupRegexPattern,
+                    vlookupResultData, vlookupMatchCount, vlookupMainDragging, vlookupRefDragging, vlookupMainSheetName, vlookupRefSheetName,
+                    vlookupCommonColumns, vlookupRefColumns, vlookupResultColumns, vlookupCanProceed,
+                    vlookupSelectMode, clearVlookupMainFile, clearVlookupRefFile, handleVlookupMainDrop, handleVlookupRefDrop, handleVlookupMainFileSelect, handleVlookupRefFileSelect,
+                    executeVlookupMatch, isVlookupRowMatched, vlookupFormatFileSize, downloadVlookupResult
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

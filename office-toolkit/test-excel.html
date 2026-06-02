@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel解析测试</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .drop-zone { border: 2px dashed #ccc; padding: 40px; text-align: center; cursor: pointer; }
+        .drop-zone:hover { border-color: #3b82f6; }
+        #result { margin-top: 20px; white-space: pre-wrap; font-family: monospace; font-size: 12px; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Excel解析测试</h1>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+    <div class="drop-zone" id="dropZone">
+        <div>📁 拖拽Excel文件到此处，或点击选择文件</div>
+        <div style="font-size: 12px; color: #666; margin-top: 10px;">支持 .xlsx 格式</div>
+    </div>
+    <div id="result"></div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const resultDiv = document.getElementById('result');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => e.preventDefault());
+        dropZone.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+
+        async function handleDrop(e) {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (files.length > 0) await parseFile(files[0]);
+        }
+
+        async function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) await parseFile(files[0]);
+        }
+
+        async function parseFile(file) {
+            resultDiv.innerHTML = '解析中...';
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await parseZip(arrayBuffer);
+                
+                log('📋 文件列表:', Object.keys(zip).join(', '));
+                
+                if (zip['xl/sharedStrings.xml']) {
+                    const sharedStringsContent = zip['xl/sharedStrings.xml'];
+                    log('\n📝 共享字符串:', sharedStringsContent.substring(0, 500));
+                    
+                    const sharedStrings = parseSharedStrings(sharedStringsContent);
+                    log('\n✅ 解析的共享字符串:', JSON.stringify(sharedStrings));
+                }
+                
+                if (zip['xl/worksheets/sheet1.xml']) {
+                    const sheetContent = zip['xl/worksheets/sheet1.xml'];
+                    log('\n📊 Sheet1内容 (前1000字符):');
+                    log(sheetContent.substring(0, 1000));
+                    
+                    const sheetData = parseSheetXml(sheetContent, []);
+                    log('\n✅ Sheet1解析结果:');
+                    log('行数:', sheetData.length);
+                    if (sheetData.length > 0) {
+                        log('表头:', Object.keys(sheetData[0]).join(', '));
+                        log('第一行:', JSON.stringify(sheetData[0]));
+                    }
+                }
+                
+                resultDiv.innerHTML = `<div class="success">✅ 解析成功！</div><pre>${resultDiv.textContent}</pre>`;
+                
+            } catch (e) {
+                resultDiv.innerHTML = `<div class="error">❌ 解析失败: ${e.message}</div>`;
+                console.error(e);
+            }
+        }
+
+        function log(msg) {
+            resultDiv.textContent += msg + '\n';
+            console.log(msg);
+        }
+
+        async function parseZip(arrayBuffer) {
+            const zip = {};
+            const view = new DataView(arrayBuffer);
+            
+            let offset = 0;
+            while (offset < arrayBuffer.byteLength) {
+                if (view.getUint32(offset) !== 0x504B0304) break;
+                
+                const fileNameLength = view.getUint16(offset + 26);
+                const extraFieldLength = view.getUint16(offset + 28);
+                const fileName = new TextDecoder('utf-8').decode(
+                    new Uint8Array(arrayBuffer, offset + 30, fileNameLength)
+                );
+                
+                const compressionMethod = view.getUint16(offset + 8);
+                const compressedSize = view.getUint32(offset + 18);
+                const uncompressedSize = view.getUint32(offset + 22);
+                const fileDataOffset = offset + 30 + fileNameLength + extraFieldLength;
+                
+                let fileData;
+                if (compressionMethod === 0) {
+                    fileData = new Uint8Array(arrayBuffer, fileDataOffset, uncompressedSize);
+                } else if (compressionMethod === 8) {
+                    const compressedData = new Uint8Array(arrayBuffer, fileDataOffset, compressedSize);
+                    fileData = await decompressAsync(compressedData);
+                } else {
+                    log('未知压缩方法:', compressionMethod);
+                    offset += 4 + compressedSize + 16;
+                    continue;
+                }
+                
+                zip[fileName] = new TextDecoder('utf-8').decode(fileData);
+                
+                offset = fileDataOffset + compressedSize + 16;
+            }
+            
+            return zip;
+        }
+
+        async function decompressAsync(data) {
+            return new Promise((resolve) => {
+                const inflate = new (window.Zlib || { Inflate: null }).Inflate(data);
+                if (window.Zlib) {
+                    try {
+                        resolve(inflate.decompress());
+                    } catch (e) {
+                        resolve(data);
+                    }
+                } else {
+                    const chunkSize = 65536;
+                    const output = [];
+                    let i = 0;
+                    
+                    while (i < data.length) {
+                        const header = data[i++];
+                        if ((header & 0x0F) !== 0x08) {
+                            output.push(header);
+                            continue;
+                        }
+                        
+                        const blockSize = data[i++] | (data[i++] << 8);
+                        i += 2;
+                        
+                        const len = (header >> 4) & 0x0F;
+                        const distCodeLen = (data[i] >> 4) & 0x0F;
+                        
+                        const codeLengths = new Array(288 + 32).fill(0);
+                        const lengths = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38];
+                        
+                        for (let j = 0; j < len; j++) {
+                            codeLengths[lengths[j]] = data[i++] & 0xFF;
+                        }
+                        
+                        const litLenCodes = buildHuffmanTree(codeLengths.slice(0, 288));
+                        const distCodes = buildHuffmanTree(codeLengths.slice(288));
+                        
+                        let bitBuffer = 0;
+                        let bitCount = 0;
+                        
+                        while (true) {
+                            const symbol = readHuffmanSymbol(data, litLenCodes, i, bitBuffer, bitCount);
+                            i = symbol.i;
+                            bitBuffer = symbol.bitBuffer;
+                            bitCount = symbol.bitCount;
+                            
+                            if (symbol.value === 256) break;
+                            
+                            if (symbol.value < 256) {
+                                output.push(symbol.value);
+                            } else {
+                                const lenBase = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+                                const extraBits = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+                                
+                                const lenIndex = symbol.value - 257;
+                                let length = lenBase[lenIndex];
+                                const extra = extraBits[lenIndex];
+                                
+                                if (extra > 0) {
+                                    for (let j = 0; j < extra; j++) {
+                                        if (bitCount === 0) {
+                                            bitBuffer = data[i++] & 0xFF;
+                                            bitCount = 8;
+                                        }
+                                        length = (length << 1) | ((bitBuffer >> (bitCount - 1)) & 1);
+                                        bitCount--;
+                                    }
+                                }
+                                
+                                const distSymbol = readHuffmanSymbol(data, distCodes, i, bitBuffer, bitCount);
+                                i = distSymbol.i;
+                                bitBuffer = distSymbol.bitBuffer;
+                                bitCount = distSymbol.bitCount;
+                                
+                                const distBase = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+                                const distExtra = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+                                
+                                const distIndex = distSymbol.value;
+                                let distance = distBase[distIndex];
+                                const distExtraBits = distExtra[distIndex];
+                                
+                                if (distExtraBits > 0) {
+                                    for (let j = 0; j < distExtraBits; j++) {
+                                        if (bitCount === 0) {
+                                            bitBuffer = data[i++] & 0xFF;
+                                            bitCount = 8;
+                                        }
+                                        distance = (distance << 1) | ((bitBuffer >> (bitCount - 1)) & 1);
+                                        bitCount--;
+                                    }
+                                }
+                                
+                                for (let j = 0; j < length; j++) {
+                                    output.push(output[output.length - distance]);
+                                }
+                            }
+                        }
+                    }
+                    
+                    resolve(new Uint8Array(output));
+                }
+            });
+        }
+
+        function buildHuffmanTree(lengths) {
+            const tree = [];
+            const codeLengths = [];
+            
+            for (let i = 0; i < lengths.length; i++) {
+                if (lengths[i] > 0) {
+                    codeLengths.push({ symbol: i, length: lengths[i] });
+                }
+            }
+            
+            codeLengths.sort((a, b) => a.length - b.length || a.symbol - b.symbol);
+            
+            let code = 0;
+            let currentLength = 0;
+            
+            for (const item of codeLengths) {
+                while (currentLength < item.length) {
+                    code <<= 1;
+                    currentLength++;
+                }
+                tree[item.symbol] = { code, length: item.length };
+                code++;
+            }
+            
+            return tree;
+        }
+        
+        function readHuffmanSymbol(data, tree, i, bitBuffer, bitCount) {
+            let code = 0;
+            let length = 0;
+            
+            while (true) {
+                if (bitCount === 0) {
+                    bitBuffer = data[i++] & 0xFF;
+                    bitCount = 8;
+                }
+                
+                code = (code << 1) | ((bitBuffer >> (bitCount - 1)) & 1);
+                bitCount--;
+                length++;
+                
+                for (const symbol of Object.keys(tree)) {
+                    if (tree[symbol].length === length && tree[symbol].code === code) {
+                        return { value: parseInt(symbol), i, bitBuffer, bitCount };
+                    }
+                }
+            }
+        }
+
+        function parseSharedStrings(content) {
+            const strings = [];
+            const pattern = /<t>([^<]*?)<\/t>/g;
+            let match;
+            
+            while ((match = pattern.exec(content)) !== null) {
+                strings.push(match[1]);
+            }
+            
+            return strings;
+        }
+
+        function parseSheetXml(xml, sharedStrings) {
+            const rows = xml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
+            if (rows.length === 0) return [];
+            
+            const headerRow = rows[0];
+            const headerCells = headerRow.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+            const headers = headerCells.map(cell => parseCellValue(cell, sharedStrings));
+            
+            const data = [];
+            
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+                const rowData = {};
+                
+                cells.forEach((cell) => {
+                    const rMatch = cell.match(/r="([A-Z]+)/);
+                    let idx = 0;
+                    if (rMatch) {
+                        const col = rMatch[1];
+                        for (let j = 0; j < col.length; j++) {
+                            idx = idx * 26 + (col.charCodeAt(j) - 64);
+                        }
+                        idx--;
+                    }
+                    rowData[headers[idx] || `Column${idx}`] = parseCellValue(cell, sharedStrings);
+                });
+                
+                if (Object.keys(rowData).some(k => rowData[k] !== '')) {
+                    data.push(rowData);
+                }
+            }
+            
+            return data;
+        }
+
+        function parseCellValue(cell, sharedStrings) {
+            const tMatch = cell.match(/t="([^"]+)"/);
+            const cellType = tMatch ? tMatch[1] : 'n';
+            
+            const vMatch = cell.match(/<v>([\s\S]*?)<\/v>/);
+            if (vMatch) {
+                let value = vMatch[1].trim();
+                
+                if (cellType === 's' && sharedStrings.length > 0) {
+                    const idx = parseInt(value);
+                    if (!isNaN(idx) && idx >= 0 && idx < sharedStrings.length) {
+                        value = sharedStrings[idx];
+                    }
+                }
+                
+                return value;
+            }
+            
+            return '';
+        }
+    </script>
+</body>
+</html>
