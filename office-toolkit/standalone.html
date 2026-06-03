@@ -127,6 +127,9 @@
                     <div v-if="vlookupMode" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                         <div class="bg-white rounded-xl p-6">
                             <h2 class="font-semibold text-gray-900 mb-4">{{ vlookupMode === 'single' ? '上传文件' : '主表文件' }}</h2>
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                <p class="text-sm text-yellow-800"><span class="font-medium">⚠️ 提醒：</span>请确保表格的第一行是表头，且无合并单元格，否则可能匹配失败</p>
+                            </div>
                             <div @dragover.prevent="vlookupMainDragging = true" @dragleave.prevent="vlookupMainDragging = false"
                                 @drop.prevent="handleVlookupMainDrop" @click="$refs.vlookupMainFileInput.click()"
                                 class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all"
@@ -162,6 +165,9 @@
 
                         <div v-if="vlookupMode === 'double'" class="bg-white rounded-xl p-6">
                             <h2 class="font-semibold text-gray-900 mb-4">参照表文件</h2>
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                <p class="text-sm text-yellow-800"><span class="font-medium">⚠️ 提醒：</span>请确保表格的第一行是表头，且无合并单元格，否则可能匹配失败</p>
+                            </div>
                             <div @dragover.prevent="vlookupRefDragging = true" @dragleave.prevent="vlookupRefDragging = false"
                                 @drop.prevent="handleVlookupRefDrop" @click="$refs.vlookupRefFileInput.click()"
                                 class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all"
@@ -214,16 +220,16 @@
                         <h2 class="font-semibold text-gray-900 mb-4">匹配设置</h2>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">公共列（用于匹配的关键列）</label>
-                                <p class="text-xs text-gray-500 mb-2">主表和参照表中用于匹配的列</p>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">单关联键（唯一匹配依据）</label>
+                                <p class="text-xs text-gray-500 mb-2">从两表共有的表头中选一列作为匹配依据</p>
                                 <select v-model="vlookupMainMatchColumn" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
                                     <option value="">请选择</option>
                                     <option v-for="col in vlookupCommonColumns" :key="col" :value="col">{{ col }}</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">匹配列（从参照表获取的列）</label>
-                                <p class="text-xs text-gray-500 mb-2">按住 Ctrl/Cmd 可多选</p>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">追加字段（从参照表获取的列）</label>
+                                <p class="text-xs text-gray-500 mb-2">按住 Ctrl/Cmd 可多选（仅显示参照表独有列/未选过的列）</p>
                                 <select v-model="vlookupSelectedReturnColumns" multiple class="w-full px-3 py-2 border border-gray-300 rounded-lg h-24">
                                     <option v-for="col in vlookupRefColumns" :key="col" :value="col">{{ col }}</option>
                                 </select>
@@ -242,7 +248,7 @@
                                 <p class="text-xs text-gray-500 mt-1">参照表的值会作为正则表达式匹配</p>
                             </div>
                         </div>
-                        <button @click="executeVlookupMatch" class="mt-6 inline-flex items-center justify-center px-6 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">执行匹配</button>
+                        <button @click="executeVlookupMatch" class="mt-6 inline-flex items-center justify-center px-6 py-2 font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">执行匹配（仅追加到主表右侧）</button>
                     </div>
 
                     <div v-if="vlookupResultData" class="bg-white rounded-xl p-6">
@@ -424,7 +430,7 @@
     </div>
 
     <script>
-        const { createApp, ref, computed } = Vue;
+        const { createApp, ref, computed, watch } = Vue;
 
         createApp({
             setup() {
@@ -482,9 +488,18 @@
                 const vlookupMainSheetName = computed(() => vlookupMainSheets.value[vlookupMainSheetIndex.value]?.name || '');
                 const vlookupRefSheetName = computed(() => vlookupMode.value === 'single' ? (vlookupMainSheets.value[vlookupRefSheetIndex.value]?.name || '') : (vlookupRefSheets.value[vlookupRefSheetIndex.value]?.name || ''));
                 const vlookupCommonColumns = computed(() => { if (!vlookupMainData.value || !vlookupRefData.value) return []; const mainCols = Object.keys(vlookupMainData.value[0] || {}); const refCols = Object.keys(vlookupRefData.value[0] || {}); return mainCols.filter(col => refCols.includes(col)); });
-                const vlookupRefColumns = computed(() => { if (!vlookupRefData.value || vlookupRefData.value.length === 0) return []; return Object.keys(vlookupRefData.value[0]); });
+                const vlookupRefColumns = computed(() => { 
+                    if (!vlookupRefData.value || vlookupRefData.value.length === 0) return []; 
+                    const refCols = Object.keys(vlookupRefData.value[0]); 
+                    return refCols.filter(col => col !== vlookupMainMatchColumn.value); 
+                });
                 const vlookupResultColumns = computed(() => { if (!vlookupMainData.value || !vlookupSelectedReturnColumns.value) return []; const mainCols = Object.keys(vlookupMainData.value[0]); const newCols = vlookupSelectedReturnColumns.value.map(col => mainCols.includes(col) ? `${col}_参照` : col); return [...mainCols, ...newCols]; });
                 const vlookupCanProceed = computed(() => { if (vlookupMode.value === 'single') return vlookupMainFile.value && vlookupMainSheets.value.length >= 2 && vlookupRefSheetIndex.value !== vlookupMainSheetIndex.value; return vlookupMainFile.value && vlookupRefFile.value; });
+
+                watch(vlookupMainMatchColumn, () => { 
+                    vlookupSelectedReturnColumns.value = []; 
+                    vlookupResultData.value = null; 
+                });
 
                 function vlookupSelectMode(mode) { vlookupMode.value = mode; vlookupResetData(); }
                 function vlookupResetData() { vlookupMainFile.value = null; vlookupRefFile.value = null; vlookupMainSheets.value = []; vlookupRefSheets.value = []; vlookupMainSheetIndex.value = 0; vlookupRefSheetIndex.value = 0; vlookupMainData.value = null; vlookupRefData.value = null; vlookupMainMatchColumn.value = ''; vlookupSelectedReturnColumns.value = []; vlookupResultData.value = null; vlookupMatchCount.value = 0; }
@@ -547,7 +562,25 @@
                     const sheets = [];
                     workbook.SheetNames.forEach(name => {
                         const worksheet = workbook.Sheets[name];
-                        const json = XLSX.utils.sheet_to_json(worksheet);
+                        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+                        const headers = [];
+                        for (let C = range.s.c; C <= range.e.c; ++C) {
+                            const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+                            const cell = worksheet[addr];
+                            headers[C] = cell ? String(cell.v || '').trim() : '';
+                        }
+                        const json = [];
+                        for (let R = 1; R <= range.e.r; ++R) {
+                            const row = {};
+                            for (let C = range.s.c; C <= range.e.c; ++C) {
+                                const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                                const cell = worksheet[addr];
+                                row[headers[C]] = cell ? String(cell.v || '') : '';
+                            }
+                            if (Object.values(row).some(v => v !== '')) {
+                                json.push(row);
+                            }
+                        }
                         sheets.push({ name, data: json, rowCount: json.length });
                     });
                     return sheets;
@@ -561,12 +594,17 @@
                     if (vlookupSelectedReturnColumns.value.length === 0) { alert('请选择至少一个匹配列'); return; }
                     if (vlookupMatchMode.value === 'regex' && !vlookupRegexPattern.value) { alert('请输入正则表达式'); return; }
 
+                    console.log('=== 执行匹配 ===');
+                    console.log('主表列:', Object.keys(vlookupMainData.value[0] || {}));
+                    console.log('选择的追加字段:', vlookupSelectedReturnColumns.value);
+
                     const result = [];
                     vlookupMatchCount.value = 0;
                     const refLookup = {};
                     vlookupRefData.value.forEach(row => { const key = String(row[vlookupMainMatchColumn.value] || ''); if (key) refLookup[key] = row; });
 
                     vlookupMainData.value.forEach(row => {
+                        const newRow = { ...row };
                         const mainValue = String(row[vlookupMainMatchColumn.value] || '');
                         let matchedRow = null;
                         switch (vlookupMatchMode.value) {
@@ -578,15 +616,19 @@
                                 try { const regex = new RegExp(vlookupRegexPattern.value); for (const [refValue, refRow] of Object.entries(refLookup)) { if (regex.test(refValue)) { matchedRow = refRow; break; } } } catch (e) { alert('无效的正则表达式: ' + e.message); return; }
                                 break;
                         }
-                        const newRow = { ...row };
-                        vlookupSelectedReturnColumns.value.forEach(col => { const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; newRow[newColName] = matchedRow ? matchedRow[col] : ''; });
+                        vlookupSelectedReturnColumns.value.forEach(col => { 
+                            const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; 
+                            newRow[newColName] = matchedRow ? matchedRow[col] : 'N/A'; 
+                        });
                         if (matchedRow) vlookupMatchCount.value++;
                         result.push(newRow);
                     });
+                    
+                    console.log('结果列:', Object.keys(result[0] || {}));
                     vlookupResultData.value = result;
                 }
 
-                function isVlookupRowMatched(row) { return vlookupSelectedReturnColumns.value.some(col => { const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; return row[newColName] !== ''; }); }
+                function isVlookupRowMatched(row) { return vlookupSelectedReturnColumns.value.some(col => { const newColName = Object.keys(vlookupMainData.value[0]).includes(col) ? col + '_参照' : col; return row[newColName] !== '' && row[newColName] !== 'N/A'; }); }
                 function vlookupFormatFileSize(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / (1024 * 1024)).toFixed(1) + ' MB'; }
 
                 function downloadVlookupResult() {
